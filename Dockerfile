@@ -117,7 +117,7 @@ COPY --from=ui-build /app/ui/dist /app/ui/dist
 # Copy entrypoint script
 COPY --chmod=755 api/entrypoint.sh /app/api/entrypoint.sh
 
-EXPOSE 9223
+EXPOSE 9222,9223
 
 ENV HOST_IP=localhost \
     DBUS_SESSION_BUS_ADDRESS=autolaunch:
