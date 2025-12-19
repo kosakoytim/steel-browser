@@ -2,8 +2,8 @@ services:
   api:
     image: ghcr.io/steel-dev/steel-browser-api:latest
     ports:
-      - "9222:9222"
-      - "9223:9223"
+      - "9222"
+      - "9223"
     volumes:
       - logs:/data/logs
       - exports:/tmp/steel-browser-exports
@@ -19,7 +19,7 @@ services:
   ui:
     image: ghcr.io/steel-dev/steel-browser-ui:latest
     ports:
-      - "5173:80"
+      - "5173"
     environment:
       - API_URL=${API_URL:-http://api:9222}
     depends_on:
