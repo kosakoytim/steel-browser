@@ -9,8 +9,8 @@ services:
       - exports:/tmp/steel-browser-exports
       - ./.cache:/app/.cache
     environment:
-      - DOMAIN=https://browser.timothykosakoy.com
-      - CDP_DOMAIN=wss://browser.timothykosakoy.com
+      - DOMAIN=https://api-browser.timothykosakoy.com
+      - CDP_DOMAIN=wss://api-browser.timothykosakoy.com
       - LOG_STORAGE_ENABLED=true
       - LOG_STORAGE_PATH=/data/logs/browser-logs.duckdb
     networks:
