@@ -6,10 +6,10 @@ services:
       args:
         NODE_VERSION: 22.13.0
     ports:
-      - "3000:3000"
+      - "9222:9222"
       - "9223:9223"
     environment:
-      - DOMAIN=${DOMAIN:-localhost:3000}
+      - DOMAIN=${DOMAIN:-localhost:9222}
       - CDP_DOMAIN=${CDP_DOMAIN:-localhost:9223}
     volumes:
       - ./.cache:/app/.cache
@@ -23,7 +23,7 @@ services:
     ports:
       - "5173:80"
     environment:
-      - API_URL=${API_URL:-http://api:3000}
+      - API_URL=${API_URL:-http://api:9222}
     depends_on:
       - api
     networks:
