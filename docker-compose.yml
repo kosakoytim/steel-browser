@@ -2,14 +2,14 @@ services:
   api:
     image: ghcr.io/steel-dev/steel-browser-api:latest
     ports:
-      - "3000:3000"
+      - "9222:9222"
       - "9223:9223"
     volumes:
       - logs:/data/logs
       - exports:/tmp/steel-browser-exports
       - ./.cache:/app/.cache
     environment:
-      - DOMAIN=${DOMAIN:-localhost:3000}
+      - DOMAIN=${DOMAIN:-localhost:9222}
       - CDP_DOMAIN=${CDP_DOMAIN:-localhost:9223}
       - LOG_STORAGE_ENABLED=true
       - LOG_STORAGE_PATH=/data/logs/browser-logs.duckdb
@@ -21,7 +21,7 @@ services:
     ports:
       - "5173:80"
     environment:
-      - API_URL=${API_URL:-http://api:3000}
+      - API_URL=${API_URL:-http://api:9222}
     depends_on:
       - api
     networks:
