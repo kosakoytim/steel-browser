@@ -253,6 +253,178 @@ async function routes(server: FastifyInstance) {
     async (request: SessionsPDFRequest, reply: FastifyReply) =>
       handlePDF(server.sessionService, server.cdpService, request, reply),
   );
+
+  server.post(
+    "/sessions/get-all-interactive",
+    {
+      schema: {
+        operationId: "get_all_interactive_elements",
+        description: "Get all interactive elements on the current page",
+        tags: ["Sessions"],
+        summary: "Get all interactive elements",
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const page = await server.cdpService.getPrimaryPage();
+        
+        const elements = await page.evaluate(() => {
+          const result = {
+            buttons: [],
+            inputs: [],
+            checkboxes: [],
+            selects: [],
+            clickableElements: []
+          };
+          
+          // Get all buttons and button-like elements
+          document.querySelectorAll('button, [role="button"], .btn, .button').forEach((el) => {
+            const text = el.textContent?.trim() || el.getAttribute('aria-label') || '';
+            if (text && el.offsetParent !== null) {
+              result.buttons.push({
+                text: text.substring(0, 100),
+                selector: el.id ? `#${el.id}` : 
+                         el.className ? `.${el.className.split(' ')[0]}` :
+                         el.getAttribute('data-testid') ? `[data-testid="${el.getAttribute('data-testid')}"]` : null
+              });
+            }
+          });
+          
+          // Get text inputs and textareas
+          document.querySelectorAll('input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="hidden"]), textarea').forEach((el) => {
+            result.inputs.push({
+              name: el.name || '',
+              type: el.type || 'text',
+              placeholder: el.placeholder || '',
+              selector: el.id ? `#${el.id}` : el.name ? `[name="${el.name}"]` : null
+            });
+          });
+          
+          // Get checkboxes and radio buttons
+          document.querySelectorAll('input[type="checkbox"], input[type="radio"]').forEach((el) => {
+            const label = el.labels?.[0]?.textContent?.trim() || el.name || '';
+            result.checkboxes.push({
+              label: label,
+              name: el.name || '',
+              type: el.type,
+              checked: el.checked,
+              selector: el.id ? `#${el.id}` : el.name ? `[name="${el.name}"]` : null
+            });
+          });
+          
+          // Get select dropdowns
+          document.querySelectorAll('select').forEach((el) => {
+            result.selects.push({
+              name: el.name || '',
+              selector: el.id ? `#${el.id}` : el.name ? `[name="${el.name}"]` : null,
+              options: Array.from(el.options).map(opt => opt.text)
+            });
+          });
+          
+          // Get other clickable elements (filters, categories, etc)
+          document.querySelectorAll('[onclick], .filter, .category, [data-testid*="filter"], [data-testid*="category"]').forEach((el) => {
+            if (!el.matches('button, a, input, select') && el.offsetParent !== null) {
+              const text = el.textContent?.trim() || '';
+              if (text) {
+                result.clickableElements.push({
+                  text: text.substring(0, 100),
+                  selector: el.id ? `#${el.id}` :
+                           el.className ? `.${el.className.split(' ')[0]}` :
+                           el.getAttribute('data-testid') ? `[data-testid="${el.getAttribute('data-testid')}"]` : null
+                });
+              }
+            }
+          });
+          
+          // Remove nulls and limit results
+          return {
+            url: window.location.href,
+            title: document.title,
+            buttons: result.buttons.filter(b => b.selector).slice(0, 20),
+            inputs: result.inputs.filter(i => i.selector).slice(0, 15),
+            checkboxes: result.checkboxes.filter(c => c.selector).slice(0, 30),
+            selects: result.selects.filter(s => s.selector).slice(0, 10),
+            clickableElements: result.clickableElements.filter(c => c.selector).slice(0, 30)
+          };
+        });
+        
+        return reply.send(elements);
+      } catch (error: any) {
+        server.log.error({ err: error }, "Failed to get interactive elements");
+        return reply.status(500).send({ error: error.message });
+      }
+    }
+  );
+
+  server.post(
+    "/sessions/interact",
+    {
+      schema: {
+        operationId: "interact_with_page",
+        description: "Interact with page elements (click, type, navigate, go back)",
+        tags: ["Sessions"],
+        summary: "Interact with page elements",
+      },
+    },
+    async (request: FastifyRequest<{
+      Body: {
+        action: 'click' | 'type' | 'navigate' | 'goBack' | 'select';
+        selector?: string;
+        text?: string;
+        url?: string;
+        value?: string;
+      }
+    }>, reply: FastifyReply) => {
+      const { action, selector, text, url, value } = request.body;
+      
+      try {
+        const page = await server.cdpService.getPrimaryPage();
+        let result;
+        
+        switch(action) {
+          case 'click':
+            if (!selector) throw new Error('selector is required for click action');
+            await page.click(selector);
+            result = { success: true, action: 'clicked', selector };
+            break;
+            
+          case 'type':
+            if (!selector || !text) throw new Error('selector and text are required for type action');
+            await page.type(selector, text, { delay: 50 });
+            result = { success: true, action: 'typed', selector, text };
+            break;
+            
+          case 'select':
+            if (!selector || !value) throw new Error('selector and value are required for select action');
+            await page.select(selector, value);
+            result = { success: true, action: 'selected', selector, value };
+            break;
+            
+          case 'navigate':
+            if (!url) throw new Error('url is required for navigate action');
+            await page.goto(url, { waitUntil: 'domcontentloaded' });
+            result = { success: true, action: 'navigated', url: page.url() };
+            break;
+            
+          case 'goBack':
+            await page.goBack({ waitUntil: 'domcontentloaded' });
+            result = { success: true, action: 'went back', url: page.url() };
+            break;
+            
+          default:
+            throw new Error(`Unknown action: ${action}`);
+        }
+        
+        return reply.send(result);
+      } catch (error: any) {
+        server.log.error({ err: error }, `Failed to ${action}`);
+        return reply.status(500).send({ 
+          success: false,
+          error: error.message 
+        });
+      }
+    }
+  );
 }
 
 export default routes;
