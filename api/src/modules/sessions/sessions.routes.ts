@@ -267,22 +267,24 @@ async function routes(server: FastifyInstance) {
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const page = await server.cdpService.getPrimaryPage();
-        
+
         const elements = await page.evaluate(() => {
           const result: {
             buttons: Array<{ text: string; selector: string | null }>;
             inputs: Array<{ name: string; type: string; placeholder: string; selector: string | null }>;
             checkboxes: Array<{ label: string; name: string; type: string; checked: boolean; selector: string | null }>;
             selects: Array<{ name: string; selector: string | null; options: string[] }>;
+            links: Array<{ text: string; href: string; selector: string | null }>;
             clickableElements: Array<{ text: string; selector: string | null }>;
           } = {
             buttons: [],
             inputs: [],
             checkboxes: [],
             selects: [],
+            links: [],
             clickableElements: []
           };
-          
+
           // Get all buttons and button-like elements
           document.querySelectorAll('button, [role="button"], .btn, .button').forEach((el) => {
             const htmlEl = el as HTMLElement;
@@ -290,75 +292,152 @@ async function routes(server: FastifyInstance) {
             if (text && htmlEl.offsetParent !== null) {
               result.buttons.push({
                 text: text.substring(0, 100),
-                selector: htmlEl.id ? `#${htmlEl.id}` : 
-                         htmlEl.className ? `.${htmlEl.className.split(' ')[0]}` :
-                         htmlEl.getAttribute('data-testid') ? `[data-testid="${htmlEl.getAttribute('data-testid')}"]` : null
+                selector: htmlEl.id
+                  ? `#${htmlEl.id}`
+                  : htmlEl.className
+                  ? `.${htmlEl.className.split(' ')[0]}`
+                  : htmlEl.getAttribute('data-testid')
+                  ? `[data-testid="${htmlEl.getAttribute('data-testid')}"]`
+                  : null,
               });
             }
           });
-          
+
           // Get text inputs and textareas
-          document.querySelectorAll('input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="hidden"]), textarea').forEach((el) => {
-            const inputEl = el as HTMLInputElement | HTMLTextAreaElement;
-            result.inputs.push({
-              name: inputEl.name || '',
-              type: (inputEl as HTMLInputElement).type || 'textarea',
-              placeholder: (inputEl as any).placeholder || '',
-              selector: inputEl.id ? `#${inputEl.id}` : inputEl.name ? `[name="${inputEl.name}"]` : null
+          document
+            .querySelectorAll(
+              'input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="hidden"]), textarea'
+            )
+            .forEach((el) => {
+              const inputEl = el as HTMLInputElement | HTMLTextAreaElement;
+              result.inputs.push({
+                name: inputEl.name || "",
+                type: (inputEl as HTMLInputElement).type || "textarea",
+                placeholder: (inputEl as any).placeholder || "",
+                selector: inputEl.id
+                  ? `#${inputEl.id}`
+                  : inputEl.name
+                  ? `[name="${inputEl.name}"]`
+                  : null,
+              });
             });
-          });
-          
-          // Get checkboxes and radio buttons
-          document.querySelectorAll('input[type="checkbox"], input[type="radio"]').forEach((el) => {
-            const inputEl = el as HTMLInputElement;
-            const label = inputEl.labels?.[0]?.textContent?.trim() || inputEl.name || '';
-            result.checkboxes.push({
-              label: label,
-              name: inputEl.name || '',
-              type: inputEl.type,
-              checked: inputEl.checked,
-              selector: inputEl.id ? `#${inputEl.id}` : inputEl.name ? `[name="${inputEl.name}"]` : null
+
+          // Get checkboxes and radio buttons with better label detection
+          document
+            .querySelectorAll('input[type="checkbox"], input[type="radio"]')
+            .forEach((el) => {
+              const inputEl = el as HTMLInputElement;
+              // Try multiple ways to get a good label
+              let label = "";
+              if (inputEl.labels && inputEl.labels.length > 0) {
+                label = inputEl.labels[0].textContent?.trim() || "";
+              } else {
+                // Look for parent label or nearby text
+                const parentLabel = inputEl.closest("label");
+                if (parentLabel) {
+                  label = parentLabel.textContent?.trim() || "";
+                } else {
+                  // Try sibling elements
+                  const nextSibling = inputEl.nextElementSibling;
+                  if (nextSibling) {
+                    label = nextSibling.textContent?.trim() || "";
+                  }
+                }
+              }
+              // Fallback to name or value
+              label = label || inputEl.value || inputEl.name || "";
+
+              result.checkboxes.push({
+                label: label.substring(0, 100),
+                name: inputEl.name || "",
+                type: inputEl.type,
+                checked: inputEl.checked,
+                selector: inputEl.id
+                  ? `#${inputEl.id}`
+                  : inputEl.name
+                  ? `[name="${inputEl.name}"]`
+                  : null,
+              });
             });
-          });
-          
+
           // Get select dropdowns
-          document.querySelectorAll('select').forEach((el) => {
+          document.querySelectorAll("select").forEach((el) => {
             const selectEl = el as HTMLSelectElement;
             result.selects.push({
-              name: selectEl.name || '',
-              selector: selectEl.id ? `#${selectEl.id}` : selectEl.name ? `[name="${selectEl.name}"]` : null,
-              options: Array.from(selectEl.options).map(opt => opt.text)
+              name: selectEl.name || "",
+              selector: selectEl.id
+                ? `#${selectEl.id}`
+                : selectEl.name
+                ? `[name="${selectEl.name}"]`
+                : null,
+              options: Array.from(selectEl.options).map((opt) => opt.text),
             });
           });
-          
-          // Get other clickable elements (filters, categories, etc)
-          document.querySelectorAll('[onclick], .filter, .category, [data-testid*="filter"], [data-testid*="category"]').forEach((el) => {
-            const htmlEl = el as HTMLElement;
-            if (!htmlEl.matches('button, a, input, select') && htmlEl.offsetParent !== null) {
-              const text = htmlEl.textContent?.trim() || '';
-              if (text) {
-                result.clickableElements.push({
-                  text: text.substring(0, 100),
-                  selector: htmlEl.id ? `#${htmlEl.id}` :
-                           htmlEl.className ? `.${htmlEl.className.split(' ')[0]}` :
-                           htmlEl.getAttribute('data-testid') ? `[data-testid="${htmlEl.getAttribute('data-testid')}"]` : null
-                });
-              }
+
+          // Get ALL links (especially product links and filter links)
+          document.querySelectorAll('a[href]').forEach((el) => {
+            const linkEl = el as HTMLAnchorElement;
+            const text = linkEl.textContent?.trim() || linkEl.getAttribute('aria-label') || '';
+            // Skip navigation links, get product and utility links
+            if (text && linkEl.offsetParent !== null && text.length > 0) {
+              result.links.push({
+                text: text.substring(0, 150),
+                href: linkEl.href,
+                selector: linkEl.id
+                  ? `#${linkEl.id}`
+                  : linkEl.className
+                  ? `a.${linkEl.className.split(' ')[0]}`
+                  : linkEl.getAttribute('data-testid')
+                  ? `a[data-testid="${linkEl.getAttribute('data-testid')}"]`
+                  : `a[href="${linkEl.getAttribute('href')}"]`,
+              });
             }
           });
-          
-          // Remove nulls and limit results
+
+          // Get other clickable elements (filters, categories, custom divs)
+          document
+            .querySelectorAll(
+              '[onclick], .filter, .category, [data-testid*="filter"], [data-testid*="category"], [role="menuitem"], [role="option"], [class*="click"], [class*="item"]'
+            )
+            .forEach((el) => {
+              const htmlEl = el as HTMLElement;
+              // Skip if already captured as button, link, or input
+              if (
+                !htmlEl.matches("button, a, input, select, textarea") &&
+                htmlEl.offsetParent !== null
+              ) {
+                const text = htmlEl.textContent?.trim() || "";
+                // Only include if has meaningful text and is reasonably sized
+                if (text && text.length > 0 && text.length < 200) {
+                  result.clickableElements.push({
+                    text: text.substring(0, 150),
+                    selector: htmlEl.id
+                      ? `#${htmlEl.id}`
+                      : htmlEl.className
+                      ? `.${htmlEl.className.split(' ')[0]}`
+                      : htmlEl.getAttribute('data-testid')
+                      ? `[data-testid="${htmlEl.getAttribute('data-testid')}"]`
+                      : htmlEl.getAttribute('data-unify')
+                      ? `[data-unify="${htmlEl.getAttribute('data-unify')}"]`
+                      : null,
+                  });
+                }
+              }
+            });
+
+          // Remove nulls, deduplicate, and limit results
           return {
             url: window.location.href,
             title: document.title,
-            buttons: result.buttons.filter(b => b.selector).slice(0, 20),
-            inputs: result.inputs.filter(i => i.selector).slice(0, 15),
-            checkboxes: result.checkboxes.filter(c => c.selector).slice(0, 30),
-            selects: result.selects.filter(s => s.selector).slice(0, 10),
-            clickableElements: result.clickableElements.filter(c => c.selector).slice(0, 30)
+            buttons: result.buttons.filter((b) => b.selector).slice(0, 25),
+            inputs: result.inputs.filter((i) => i.selector).slice(0, 15),
+            checkboxes: result.checkboxes.filter((c) => c.selector).slice(0, 30),
+            selects: result.selects.filter((s) => s.selector).slice(0, 10),
+            links: result.links.filter((l) => l.selector).slice(0, 50), // Increased for product links
+            clickableElements: result.clickableElements.filter((c) => c.selector).slice(0, 40),
           };
         });
-        
+
         return reply.send(elements);
       } catch (error: any) {
         server.log.error({ err: error }, "Failed to get interactive elements");
