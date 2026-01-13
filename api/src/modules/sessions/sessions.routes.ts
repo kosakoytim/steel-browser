@@ -269,7 +269,13 @@ async function routes(server: FastifyInstance) {
         const page = await server.cdpService.getPrimaryPage();
         
         const elements = await page.evaluate(() => {
-          const result = {
+          const result: {
+            buttons: Array<{ text: string; selector: string | null }>;
+            inputs: Array<{ name: string; type: string; placeholder: string; selector: string | null }>;
+            checkboxes: Array<{ label: string; name: string; type: string; checked: boolean; selector: string | null }>;
+            selects: Array<{ name: string; selector: string | null; options: string[] }>;
+            clickableElements: Array<{ text: string; selector: string | null }>;
+          } = {
             buttons: [],
             inputs: [],
             checkboxes: [],
@@ -279,58 +285,63 @@ async function routes(server: FastifyInstance) {
           
           // Get all buttons and button-like elements
           document.querySelectorAll('button, [role="button"], .btn, .button').forEach((el) => {
-            const text = el.textContent?.trim() || el.getAttribute('aria-label') || '';
-            if (text && el.offsetParent !== null) {
+            const htmlEl = el as HTMLElement;
+            const text = htmlEl.textContent?.trim() || htmlEl.getAttribute('aria-label') || '';
+            if (text && htmlEl.offsetParent !== null) {
               result.buttons.push({
                 text: text.substring(0, 100),
-                selector: el.id ? `#${el.id}` : 
-                         el.className ? `.${el.className.split(' ')[0]}` :
-                         el.getAttribute('data-testid') ? `[data-testid="${el.getAttribute('data-testid')}"]` : null
+                selector: htmlEl.id ? `#${htmlEl.id}` : 
+                         htmlEl.className ? `.${htmlEl.className.split(' ')[0]}` :
+                         htmlEl.getAttribute('data-testid') ? `[data-testid="${htmlEl.getAttribute('data-testid')}"]` : null
               });
             }
           });
           
           // Get text inputs and textareas
           document.querySelectorAll('input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="hidden"]), textarea').forEach((el) => {
+            const inputEl = el as HTMLInputElement | HTMLTextAreaElement;
             result.inputs.push({
-              name: el.name || '',
-              type: el.type || 'text',
-              placeholder: el.placeholder || '',
-              selector: el.id ? `#${el.id}` : el.name ? `[name="${el.name}"]` : null
+              name: inputEl.name || '',
+              type: (inputEl as HTMLInputElement).type || 'textarea',
+              placeholder: (inputEl as any).placeholder || '',
+              selector: inputEl.id ? `#${inputEl.id}` : inputEl.name ? `[name="${inputEl.name}"]` : null
             });
           });
           
           // Get checkboxes and radio buttons
           document.querySelectorAll('input[type="checkbox"], input[type="radio"]').forEach((el) => {
-            const label = el.labels?.[0]?.textContent?.trim() || el.name || '';
+            const inputEl = el as HTMLInputElement;
+            const label = inputEl.labels?.[0]?.textContent?.trim() || inputEl.name || '';
             result.checkboxes.push({
               label: label,
-              name: el.name || '',
-              type: el.type,
-              checked: el.checked,
-              selector: el.id ? `#${el.id}` : el.name ? `[name="${el.name}"]` : null
+              name: inputEl.name || '',
+              type: inputEl.type,
+              checked: inputEl.checked,
+              selector: inputEl.id ? `#${inputEl.id}` : inputEl.name ? `[name="${inputEl.name}"]` : null
             });
           });
           
           // Get select dropdowns
           document.querySelectorAll('select').forEach((el) => {
+            const selectEl = el as HTMLSelectElement;
             result.selects.push({
-              name: el.name || '',
-              selector: el.id ? `#${el.id}` : el.name ? `[name="${el.name}"]` : null,
-              options: Array.from(el.options).map(opt => opt.text)
+              name: selectEl.name || '',
+              selector: selectEl.id ? `#${selectEl.id}` : selectEl.name ? `[name="${selectEl.name}"]` : null,
+              options: Array.from(selectEl.options).map(opt => opt.text)
             });
           });
           
           // Get other clickable elements (filters, categories, etc)
           document.querySelectorAll('[onclick], .filter, .category, [data-testid*="filter"], [data-testid*="category"]').forEach((el) => {
-            if (!el.matches('button, a, input, select') && el.offsetParent !== null) {
-              const text = el.textContent?.trim() || '';
+            const htmlEl = el as HTMLElement;
+            if (!htmlEl.matches('button, a, input, select') && htmlEl.offsetParent !== null) {
+              const text = htmlEl.textContent?.trim() || '';
               if (text) {
                 result.clickableElements.push({
                   text: text.substring(0, 100),
-                  selector: el.id ? `#${el.id}` :
-                           el.className ? `.${el.className.split(' ')[0]}` :
-                           el.getAttribute('data-testid') ? `[data-testid="${el.getAttribute('data-testid')}"]` : null
+                  selector: htmlEl.id ? `#${htmlEl.id}` :
+                           htmlEl.className ? `.${htmlEl.className.split(' ')[0]}` :
+                           htmlEl.getAttribute('data-testid') ? `[data-testid="${htmlEl.getAttribute('data-testid')}"]` : null
                 });
               }
             }
