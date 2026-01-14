@@ -286,20 +286,46 @@ async function routes(server: FastifyInstance) {
           };
 
           // Get all buttons and button-like elements
-          document.querySelectorAll('button, [role="button"], .btn, .button').forEach((el) => {
+          document.querySelectorAll('button, [role="button"], .btn, .button').forEach((el, index) => {
             const htmlEl = el as HTMLElement;
             const text = htmlEl.textContent?.trim() || htmlEl.getAttribute('aria-label') || '';
             if (text && htmlEl.offsetParent !== null) {
-              result.buttons.push({
-                text: text.substring(0, 100),
-                selector: htmlEl.id
-                  ? `#${htmlEl.id}`
-                  : htmlEl.className
-                  ? `.${htmlEl.className.split(' ')[0]}`
-                  : htmlEl.getAttribute('data-testid')
-                  ? `[data-testid="${htmlEl.getAttribute('data-testid')}"]`
-                  : null,
-              });
+              // Try multiple strategies for unique selector
+              let selector = null;
+              
+              // Strategy 1: ID (most specific)
+              if (htmlEl.id) {
+                selector = `#${htmlEl.id}`;
+              }
+              // Strategy 2: data-testid or data-unify
+              else if (htmlEl.getAttribute('data-testid')) {
+                selector = `[data-testid="${htmlEl.getAttribute('data-testid')}"]`;
+              }
+              else if (htmlEl.getAttribute('data-unify')) {
+                selector = `[data-unify="${htmlEl.getAttribute('data-unify')}"]`;
+              }
+              // Strategy 3: Button with unique text content
+              else if (htmlEl.tagName === 'BUTTON' && text) {
+                // Create selector that combines tag and text
+                selector = `button:has-text("${text.substring(0, 50)}")`;
+                // Or use XPath-like approach with contains
+                selector = `//button[contains(text(), "${text.substring(0, 30)}")]`;
+              }
+              // Strategy 4: nth-of-type as last resort
+              else {
+                const siblings = Array.from(htmlEl.parentElement?.children || []);
+                const sameTagSiblings = siblings.filter(s => s.tagName === htmlEl.tagName);
+                const nthIndex = sameTagSiblings.indexOf(htmlEl) + 1;
+                const className = htmlEl.className.split(' ')[0];
+                selector = className ? `.${className}:nth-of-type(${nthIndex})` : null;
+              }
+              
+              if (selector) {
+                result.buttons.push({
+                  text: text.substring(0, 100),
+                  selector: selector
+                });
+              }
             }
           });
 
